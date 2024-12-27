@@ -1,0 +1,18 @@
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Jamie Whiting"]
+
+[workspace]
+resolver = "2"
+members = ["policy", "value"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[workspace.dependencies]
+bullet = { package = "bullet_lib", git = 'https://github.com/jw1912/bullet' }
+montyformat = { git = 'https://github.com/official-monty/montyformat.git', tag = "v0.7.0" }

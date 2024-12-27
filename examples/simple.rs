@@ -50,7 +50,7 @@ fn main() {
     let filter = |_pos: &Position, _mv: Move, score: i16, _result: f32| -> bool { score > -15000 && score < 15000 };
     //let data_loader = loader::DirectSequentialDataLoader::new(&["C:\\NNUE-Trainer\\shuffled.bin"]);
 
-    let data_loader = MontyBinpackLoader::new(file_paths, 2048, 16, filter);
+    let data_loader = MontyBinpackLoader::new("hugemonty.binpack", 2048, 16, filter);
     trainer.run(&schedule, &settings, &data_loader);
 }
 
