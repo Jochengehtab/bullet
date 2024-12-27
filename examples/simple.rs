@@ -5,17 +5,14 @@ and the training schedule is pretty sensible.
 There's potentially a lot of elo available by adjusting the wdl
 and lr schedulers, depending on your dataset.
 */
+use bullet_lib::default::loader::MontyBinpackLoader;
 use bullet_lib::{
-    default::{inputs, loader, outputs, Loss, TrainerBuilder},
-    lr, optimiser,
-    sfbinpack::{
-        chess::{piecetype::PieceType, r#move::MoveType},
-        data_entry::TrainingDataEntry,
-    },
-    wdl, Activation, LocalSettings, TrainingSchedule, TrainingSteps,
+    default::{inputs, outputs, Loss, TrainerBuilder},
+    lr, optimiser, wdl, Activation, LocalSettings, TrainingSchedule, TrainingSteps,
 };
+use montyformat::chess::{Move, Position};
 
-const HIDDEN_SIZE: usize = 128;
+const HIDDEN_SIZE: usize = 1024;
 const SCALE: i32 = 400;
 const QA: i16 = 255;
 const QB: i16 = 64;
@@ -39,36 +36,21 @@ fn main() {
             batch_size: 16_384,
             batches_per_superbatch: 6104,
             start_superbatch: 1,
-            end_superbatch: 20,
+            end_superbatch: 500,
         },
-        wdl_scheduler: wdl::ConstantWDL { value: 0.75 },
-        lr_scheduler: lr::StepLR { start: 0.001, gamma: 0.1, step: 8 },
-        save_rate: 10,
+        wdl_scheduler: wdl::ConstantWDL { value: 0.0 },
+        lr_scheduler: lr::StepLR { start: 0.001, gamma: 0.3, step: 125 },
+        save_rate: 5,
     };
 
     trainer.set_optimiser_params(optimiser::AdamWParams::default());
 
     let settings = LocalSettings { threads: 4, test_set: None, output_directory: "checkpoints", batch_queue_size: 64 };
 
-    // loading from a SF binpack
-    let data_loader = {
-        let file_path = "data/test80-2024-02-feb-2tb7p.min-v2.v6.binpack";
-        let buffer_size_mb = 1024;
-        let threads = 4;
-        fn filter(entry: &TrainingDataEntry) -> bool {
-            entry.ply >= 16
-                && !entry.pos.is_checked(entry.pos.side_to_move())
-                && entry.score.unsigned_abs() <= 10000
-                && entry.mv.mtype() == MoveType::Normal
-                && entry.pos.piece_at(entry.mv.to).piece_type() == PieceType::None
-        }
+    let filter = |_pos: &Position, _mv: Move, score: i16, _result: f32| -> bool { score > -15000 && score < 15000 };
+    //let data_loader = loader::DirectSequentialDataLoader::new(&["C:\\NNUE-Trainer\\shuffled.bin"]);
 
-        loader::SfBinpackLoader::new(file_path, buffer_size_mb, threads, filter)
-    };
-
-    // loading directly from a `BulletFormat` file
-    //let data_loader = loader::DirectSequentialDataLoader::new(&["data/baseline.data"]);
-
+    let data_loader = MontyBinpackLoader::new("hugemonty.binpack", 2048, 16, filter);
     trainer.run(&schedule, &settings, &data_loader);
 }
 
