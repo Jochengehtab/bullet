@@ -5,17 +5,14 @@ and the training schedule is pretty sensible.
 There's potentially a lot of elo available by adjusting the wdl
 and lr schedulers, depending on your dataset.
 */
+use bullet_lib::default::loader::MontyBinpackLoader;
 use bullet_lib::{
-    default::{inputs, loader, outputs, Loss, TrainerBuilder},
-    lr, optimiser,
-    sfbinpack::{
-        chess::{piecetype::PieceType, r#move::MoveType},
-        data_entry::TrainingDataEntry,
-    },
-    wdl, Activation, LocalSettings, TrainingSchedule, TrainingSteps,
+    default::{inputs, outputs, Loss, TrainerBuilder},
+    lr, optimiser, wdl, Activation, LocalSettings, TrainingSchedule, TrainingSteps,
 };
+use montyformat::chess::{Move, Position};
 
-const HIDDEN_SIZE: usize = 512;
+const HIDDEN_SIZE: usize = 1024;
 const SCALE: i32 = 400;
 const QA: i16 = 255;
 const QB: i16 = 64;
@@ -31,8 +28,6 @@ fn main() {
         .activate(Activation::SCReLU)
         .add_layer(1)
         .build();
-
-    //trainer.load_from_checkpoint("C:\\NNUE-Trainer\\checkpoints\\simple-220\\");
 
     let schedule = TrainingSchedule {
         net_id: "simple".to_string(),
@@ -52,25 +47,9 @@ fn main() {
 
     let settings = LocalSettings { threads: 4, test_set: None, output_directory: "checkpoints", batch_queue_size: 64 };
 
-    // loading from a SF binpack
-    let data_loader = {
-        let file_path = "data/test80-2024-02-feb-2tb7p.min-v2.v6.binpack";
-        let buffer_size_mb = 1024;
-        let threads = 4;
-        fn filter(entry: &TrainingDataEntry) -> bool {
-            entry.ply >= 16
-                && !entry.pos.is_checked(entry.pos.side_to_move())
-                && entry.score.unsigned_abs() <= 10000
-                && entry.mv.mtype() == MoveType::Normal
-                && entry.pos.piece_at(entry.mv.to).piece_type() == PieceType::None
-        }
+    let filter = |_pos: &Position, _mv: Move, score: i16, _result: f32| -> bool { score > -15000 && score < 15000 };
 
-        loader::SfBinpackLoader::new(file_path, buffer_size_mb, threads, filter)
-    };
-
-    // loading directly from a `BulletFormat` file
-    //let data_loader = loader::DirectSequentialDataLoader::new(&["data/baseline.data"]);
-
+    let data_loader = MontyBinpackLoader::new("datamonty.binpack", 256, 4, filter);
     trainer.run(&schedule, &settings, &data_loader);
 }
 
