@@ -2,7 +2,7 @@
 The exact training used for akimbo's current network, updated as I merge new nets.
 */
 use bullet_lib::{
-    inputs, loader, lr, optimiser, outputs,
+    inputs, optimiser, outputs,
     testing::{Engine, OpenBenchCompliant, OpeningBook, TestSettings, TimeControl, UciOption},
     wdl, Activation, LocalSettings, Loss, TrainerBuilder, TrainingSchedule, TrainingSteps,
 };
