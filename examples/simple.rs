@@ -48,6 +48,7 @@ fn main() {
     let settings = LocalSettings { threads: 4, test_set: None, output_directory: "checkpoints", batch_queue_size: 64 };
 
     let filter = |_pos: &Position, _mv: Move, score: i16, _result: f32| -> bool { score > -15000 && score < 15000 };
+    //let data_loader = loader::DirectSequentialDataLoader::new(&["C:\\NNUE-Trainer\\shuffled.bin"]);
 
     let data_loader = MontyBinpackLoader::new("datamonty.binpack", 256, 4, filter);
     trainer.run(&schedule, &settings, &data_loader);
