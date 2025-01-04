@@ -1,11 +1,8 @@
-/*
-The exact training used for akimbo's current network, updated as I merge new nets.
-*/
 use bullet_lib::{
     inputs, optimiser, outputs, Activation,Loss, TrainerBuilder,
 };
 
-const HIDDEN_SIZE: usize = 512;
+const HIDDEN_SIZE: usize = 1024;
 const QA: i16 = 255;
 const QB: i16 = 64;
 
@@ -16,13 +13,13 @@ fn main() {
         .optimiser(optimiser::AdamW)
         .loss_fn(Loss::SigmoidMSE)
         .input(inputs::Chess768)
-        .output_buckets(outputs::Single)
+        .output_buckets(outputs::MaterialCount::<8>::default())
         .feature_transformer(HIDDEN_SIZE)
         .activate(Activation::SCReLU)
         .add_layer(1)
         .build();
 
-    trainer.load_from_checkpoint("C:\\NNUE-Trainer\\checkpoints\\simple-500\\");
+    trainer.load_from_checkpoint("C:\\NNUE-Trainer\\checkpoints\\simple-390\\");
 
     for fen in [
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
