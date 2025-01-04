@@ -9,6 +9,7 @@ use bullet_lib::default::loader::MontyBinpackLoader;
 use bullet_lib::{
     default::{inputs, outputs, Loss, TrainerBuilder},
     lr, optimiser, wdl, Activation, LocalSettings, TrainingSchedule, TrainingSteps,
+
 };
 use montyformat::chess::{Move, Position};
 
