@@ -1,38 +1,46 @@
 use bullet_lib::{
-    default::{
-        inputs::{self, SparseInputType},
-        loader, outputs, Layout, QuantTarget, SavedFormat, Trainer,
+    nn::{
+        optimiser::{AdamWOptimiser, AdamWParams},
+        Activation, ExecutionContext, Graph, InitSettings, NetworkBuilder, Node, Shape,
     },
-    lr, operations,
-    optimiser::{AdamWOptimiser, AdamWParams},
-    wdl, Activation, ExecutionContext, Graph, GraphBuilder, LocalSettings, Node, Shape, TrainingSchedule,
-    TrainingSteps,
+    trainer::{
+        default::{inputs, loader, outputs, Trainer},
+        save::{Layout, QuantTarget, SavedFormat},
+        schedule::{lr, wdl, TrainingSchedule, TrainingSteps},
+        settings::LocalSettings,
+    },
 };
 
+type InputFeatures = inputs::Chess768;
+type OutputBuckets = outputs::MaterialCount<8>;
+const HL_SIZE: usize = 512;
+
 fn main() {
-    let inputs = inputs::Chess768;
-    let hl = 512;
-    let num_inputs = inputs.num_inputs();
+    let inputs = InputFeatures::default();
+    let output_buckets = OutputBuckets::default();
 
-    let (mut graph, output_node) = build_network(num_inputs, hl);
+    let num_inputs = <InputFeatures as inputs::SparseInputType>::num_inputs(&inputs);
+    let max_active = <InputFeatures as inputs::SparseInputType>::max_active(&inputs);
+    let num_buckets = <OutputBuckets as outputs::OutputBuckets<_>>::BUCKETS;
 
-    graph.get_weights_mut("l0w").seed_random(0.0, 1.0 / (num_inputs as f32).sqrt(), true);
-    graph.get_weights_mut("l0b").seed_random(0.0, 1.0 / (num_inputs as f32).sqrt(), true);
-    graph.get_weights_mut("l1w").seed_random(0.0, 1.0 / (2.0 * hl as f32).sqrt(), true);
-    graph.get_weights_mut("l1b").seed_random(0.0, 1.0 / (2.0 * hl as f32).sqrt(), true);
+    let (graph, output_node) = build_network(num_inputs, max_active, num_buckets, HL_SIZE);
 
-    let mut trainer = Trainer::<AdamWOptimiser, inputs::Chess768, outputs::Single>::new(
+    let mut trainer = Trainer::<AdamWOptimiser, _, _>::new(
         graph,
         output_node,
         AdamWParams::default(),
-        inputs::Chess768,
-        outputs::Single,
+        inputs,
+        output_buckets,
         vec![
             SavedFormat::new("pst", QuantTarget::I16(255), Layout::Normal),
             SavedFormat::new("l0w", QuantTarget::I16(255), Layout::Normal),
             SavedFormat::new("l0b", QuantTarget::I16(255), Layout::Normal),
             SavedFormat::new("l1w", QuantTarget::I16(64), Layout::Normal),
             SavedFormat::new("l1b", QuantTarget::I16(64 * 255), Layout::Normal),
+            SavedFormat::new("l2w", QuantTarget::Float, Layout::Normal),
+            SavedFormat::new("l2b", QuantTarget::Float, Layout::Normal),
+            SavedFormat::new("l3w", QuantTarget::Float, Layout::Normal),
+            SavedFormat::new("l3b", QuantTarget::Float, Layout::Normal),
         ],
         false,
     );
@@ -42,9 +50,9 @@ fn main() {
         eval_scale: 400.0,
         steps: TrainingSteps {
             batch_size: 16_384,
-            batches_per_superbatch: 6104,
+            batches_per_superbatch: 1024,
             start_superbatch: 1,
-            end_superbatch: 240,
+            end_superbatch: 10,
         },
         wdl_scheduler: wdl::ConstantWDL { value: 0.0 },
         lr_scheduler: lr::StepLR { start: 0.001, gamma: 0.3, step: 60 },
@@ -61,30 +69,44 @@ fn main() {
     println!("Eval: {eval:.3}cp");
 }
 
-fn build_network(inputs: usize, hl: usize) -> (Graph, Node) {
-    let mut builder = GraphBuilder::default();
+fn build_network(num_inputs: usize, max_active: usize, num_buckets: usize, hl: usize) -> (Graph, Node) {
+    let builder = NetworkBuilder::default();
 
     // inputs
-    let stm = builder.create_input("stm", Shape::new(inputs, 1));
-    let nstm = builder.create_input("nstm", Shape::new(inputs, 1));
-    let targets = builder.create_input("targets", Shape::new(1, 1));
+    let stm = builder.new_sparse_input("stm", Shape::new(num_inputs, 1), max_active);
+    let nstm = builder.new_sparse_input("nstm", Shape::new(num_inputs, 1), max_active);
+    let targets = builder.new_dense_input("targets", Shape::new(1, 1));
+    let buckets = builder.new_sparse_input("buckets", Shape::new(num_buckets, 1), 1);
 
     // trainable weights
-    let l0w = builder.create_weights("l0w", Shape::new(hl, inputs));
-    let l0b = builder.create_weights("l0b", Shape::new(hl, 1));
-    let l1w = builder.create_weights("l1w", Shape::new(1, hl * 2));
-    let l1b = builder.create_weights("l1b", Shape::new(1, 1));
-    let pst = builder.create_weights("pst", Shape::new(1, inputs));
+    let l0 = builder.new_affine("l0", num_inputs, hl);
+    let l1 = builder.new_affine("l1", hl, num_buckets * 16);
+    let l2 = builder.new_affine("l2", 30, num_buckets * 32);
+    let l3 = builder.new_affine("l3", 32, num_buckets);
+    let pst = builder.new_weights("pst", Shape::new(1, num_inputs), InitSettings::Zeroed);
 
     // inference
-    let l1 = operations::sparse_affine_dual_with_activation(&mut builder, l0w, stm, nstm, l0b, Activation::SCReLU);
-    let l2 = operations::affine(&mut builder, l1w, l1, l1b);
-    let psqt = operations::matmul(&mut builder, pst, stm);
-    let predicted = operations::add(&mut builder, l2, psqt);
+    let mut out = l0.forward_sparse_dual_with_activation(stm, nstm, Activation::CReLU);
 
-    let sigmoided = operations::activate(&mut builder, predicted, Activation::Sigmoid);
-    operations::mse(&mut builder, sigmoided, targets);
+    out = out.pairwise_mul_post_affine_dual();
+    out = l1.forward(out).select(buckets);
+
+    let skip_neuron = out.slice_rows(15, 16);
+    out = out.slice_rows(0, 15);
+
+    out = out.concat(out.activate(Activation::Square));
+    out = out.activate(Activation::CReLU);
+
+    out = l2.forward(out).select(buckets).activate(Activation::SCReLU);
+    out = l3.forward(out).select(buckets);
+
+    let pst_out = pst.matmul(stm) - pst.matmul(nstm);
+    out = out + skip_neuron + pst_out;
+
+    let pred = out.activate(Activation::Sigmoid);
+    pred.mse(targets);
 
     // graph, output node
-    (builder.build(ExecutionContext::default()), predicted)
+    let output_node = out.node();
+    (builder.build(ExecutionContext::default()), output_node)
 }

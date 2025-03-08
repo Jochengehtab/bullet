@@ -7,8 +7,19 @@ and lr schedulers, depending on your dataset.
 */
 use bullet_lib::default::loader::MontyBinpackLoader;
 use bullet_lib::{
-    default::{inputs, outputs, Loss, TrainerBuilder},
-    lr, optimiser, wdl, Activation, LocalSettings, TrainingSchedule, TrainingSteps,
+    nn::{optimiser, Activation},
+    trainer::{
+        default::{
+            formats::sfbinpack::{
+                chess::{piecetype::PieceType, r#move::MoveType},
+                TrainingDataEntry,
+            },
+            inputs, loader, outputs, Loss, TrainerBuilder,
+        },
+        schedule::{lr, wdl, TrainingSchedule, TrainingSteps},
+        settings::LocalSettings,
+    },
+};
 
 };
 use montyformat::chess::{Move, Position};
@@ -26,7 +37,7 @@ fn main() {
         .input(inputs::Chess768)
         .output_buckets(outputs::MaterialCount::<8>::default())
         .feature_transformer(HIDDEN_SIZE)
-        .activate(Activation::SCReLU)
+        .activate(Activation::CReLU)
         .add_layer(1)
         .build();
 
@@ -38,12 +49,12 @@ fn main() {
         steps: TrainingSteps {
             batch_size: 16_384,
             batches_per_superbatch: 6104,
-            start_superbatch: 391,
-            end_superbatch: 890,
+            start_superbatch: 1,
+            end_superbatch: 40,
         },
-        wdl_scheduler: wdl::ConstantWDL { value: 0.0 },
-        lr_scheduler: lr::StepLR { start: 0.001, gamma: 0.3, step: 125 },
-        save_rate: 5,
+        wdl_scheduler: wdl::ConstantWDL { value: 0.75 },
+        lr_scheduler: lr::StepLR { start: 0.001, gamma: 0.1, step: 18 },
+        save_rate: 10,
     };
 
     trainer.set_optimiser_params(optimiser::AdamWParams::default());
@@ -55,6 +66,24 @@ fn main() {
         && !mv.is_capture()
         && !pos.in_check() };
     //let data_loader = loader::DirectSequentialDataLoader::new(&["C:\\NNUE-Trainer\\shuffled.bin"]);
+    // loading from a SF binpack
+    let _data_loader = {
+        let file_path = "data/test80-2024-02-feb-2tb7p.min-v2.v6.binpack";
+        let buffer_size_mb = 1024;
+        let threads = 4;
+        fn filter(entry: &TrainingDataEntry) -> bool {
+            entry.ply >= 16
+                && !entry.pos.is_checked(entry.pos.side_to_move())
+                && entry.score.unsigned_abs() <= 10000
+                && entry.mv.mtype() == MoveType::Normal
+                && entry.pos.piece_at(entry.mv.to).piece_type() == PieceType::None
+        }
+
+        loader::SfBinpackLoader::new(file_path, buffer_size_mb, threads, filter)
+    };
+
+    // loading directly from a `BulletFormat` file
+    let data_loader = loader::DirectSequentialDataLoader::new(&["data/baseline.data"]);
 
     let data_loader = MontyBinpackLoader::new("hugemonty.binpack", 2048, 16, filter);
     trainer.run(&schedule, &settings, &data_loader);

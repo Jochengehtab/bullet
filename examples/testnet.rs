@@ -2,8 +2,13 @@
 This is used to confirm non-functional changes for bullet.
 */
 use bullet_lib::{
-    default::{inputs, loader, outputs, Loss, TrainerBuilder},
-    lr, optimiser, wdl, Activation, LocalSettings, TrainingSchedule, TrainingSteps,
+    nn::{optimiser, Activation},
+    trainer::{
+        default::{inputs, loader, outputs, Loss, TrainerBuilder},
+        schedule::{lr, wdl, TrainingSchedule, TrainingSteps},
+        settings::LocalSettings,
+    },
+    NetworkTrainer,
 };
 
 fn main() {
@@ -18,7 +23,7 @@ fn main() {
         .add_layer(1)
         .build();
 
-    trainer.load_from_checkpoint("checkpoints/testnet");
+    trainer.optimiser_mut().load_from_old_format_checkpoint("checkpoints/testnet/optimiser_state").unwrap();
 
     let schedule = TrainingSchedule {
         net_id: "testnet".to_string(),
@@ -36,4 +41,6 @@ fn main() {
     let data_loader = loader::DirectSequentialDataLoader::new(&["data/batch1.data"]);
 
     trainer.run(&schedule, &settings, &data_loader);
+
+    trainer.sanity_check();
 }
