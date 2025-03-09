@@ -10,11 +10,7 @@ use bullet_lib::{
     nn::{optimiser, Activation},
     trainer::{
         default::{
-            formats::sfbinpack::{
-                chess::{piecetype::PieceType, r#move::MoveType},
-                TrainingDataEntry,
-            },
-            inputs, loader, outputs, Loss, TrainerBuilder,
+            inputs, outputs, Loss, TrainerBuilder,
         },
         schedule::{lr, wdl, TrainingSchedule, TrainingSteps},
         settings::LocalSettings,
@@ -40,7 +36,7 @@ fn main() {
         .add_layer(1)
         .build();
 
-    //trainer.load_from_checkpoint("C:\\NNUE-Trainer\\checkpoints\\simple-390\\");
+    trainer.load_from_checkpoint("C:\\NNUE-Trainer\\checkpoints\\simple-110\\");
 
     let schedule = TrainingSchedule {
         net_id: "simple".to_string(),
@@ -48,8 +44,8 @@ fn main() {
         steps: TrainingSteps {
             batch_size: 16_384,
             batches_per_superbatch: 6104,
-            start_superbatch: 1,
-            end_superbatch: 400,
+            start_superbatch: 111,
+            end_superbatch: 710,
         },
         wdl_scheduler: wdl::ConstantWDL { value: 0.75 },
         lr_scheduler: lr::StepLR { start: 0.001, gamma: 0.1, step: 180 },
